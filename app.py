@@ -1,54 +1,45 @@
 from flask import Flask, request, send_file
 import requests
 import random
-import io
+from io import BytesIO
 import os
 
 app = Flask(__name__)
 
-# 示例解析 API（支持无水印下载）
-PARSE_API = "https://api.nn.ci/tiktok/parse?url="
+# 示例视频列表（真实使用时可改为解析 API 提供的地址）
+dummy_video_links = [
+    "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4",
+    "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_5mb.mp4"
+]
 
-def get_tiktok_urls(keyword):
-    headers = {
-        "User-Agent": "Mozilla/5.0"
-    }
-    search_url = f"https://www.tiktok.com/search?q={keyword}"
-    response = requests.get(search_url, headers=headers)
-    video_ids = list(set([line.split('"/video/')[1].split('"')[0] for line in response.text.split('"') if '/video/' in line]))
-    return [f"https://www.tiktok.com/@user/video/{vid}" for vid in video_ids]
+def get_video_url(keyword):
+    # 👉 你可以改为：根据关键词调用真正的 TikTok 搜索 + 解析接口
+    # 当前是模拟的：随机返回一个视频链接
+    return random.choice(dummy_video_links)
 
-def parse_tiktok(url):
-    try:
-        response = requests.get(PARSE_API + url)
-        data = response.json()
-        return data.get("video")  # 视频直链
-    except:
-        return None
-
-@app.route('/')
+@app.route("/")
 def home():
-    return "访问 /api/tiktok?q=关键词 获取 TikTok 视频"
+    return "🎬 TikTok 视频下载 API（使用示例：/api/tiktok?q=关键词）"
 
-@app.route('/api/tiktok')
-def api_tiktok():
-    keyword = request.args.get("q")
+@app.route("/api/tiktok")
+def tiktok():
+    keyword = request.args.get("q", "").strip()
     if not keyword:
-        return "请提供关键词参数 q"
+        return "❌ 缺少关键词参数 `q`", 400
 
-    urls = get_tiktok_urls(keyword)
-    if not urls:
-        return "❌ 未找到视频"
+    try:
+        video_url = get_video_url(keyword)
+        resp = requests.get(video_url, stream=True)
+        video_stream = BytesIO(resp.content)
+        return send_file(
+            video_stream,
+            mimetype="video/mp4",
+            as_attachment=True,
+            download_name=f"{keyword}.mp4"
+        )
+    except Exception as e:
+        return f"❌ 视频获取失败：{str(e)}", 500
 
-    random.shuffle(urls)
-    for url in urls:
-        video_url = parse_tiktok(url)
-        if video_url:
-            video_response = requests.get(video_url)
-            return send_file(io.BytesIO(video_response.content), mimetype='video/mp4', as_attachment=False, download_name="video.mp4")
-
-    return "❌ 视频解析失败，请稍后再试"
-
-if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))  # Render 会提供 PORT 环境变量
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))  # for Render 部署
     app.run(host="0.0.0.0", port=port)
