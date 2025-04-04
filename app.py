@@ -1,66 +1,51 @@
 from flask import Flask, request, send_file, jsonify
 import requests
-import random
 import os
-import re
+import random
 
 app = Flask(__name__)
+VIDEO_PATH = 'static/temp.mp4'
 
-headers = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'
-}
+@app.route('/')
+def home():
+    return '✅ TikTok 视频 API：使用 /api/tiktok?q=关键词 获取随机视频。'
 
-def search_tiktok_videos(keyword):
-    # 使用 TikTok 快速搜索 API（简化模拟）
-    search_url = f"https://www.tikwm.com/api/feed/search?keywords={keyword}&count=10"
-    resp = requests.get(search_url, headers=headers)
-    data = resp.json()
-    if data.get("data"):
-        videos = data["data"]
-        random_video = random.choice(videos)
-        return random_video["url"]
-    return None
-
-def parse_video(video_url):
-    # 使用 TikVid.com 来解析 TikTok 链接
-    api_url = "https://api.tikvid.io/api/download"
-    payload = {"url": video_url}
-    response = requests.post(api_url, json=payload, headers=headers)
-    data = response.json()
-    if data.get("video_no_watermark"):
-        return data["video_no_watermark"]
-    return None
-
-@app.route("/")
-def index():
-    return "访问 /api/tiktok?q=关键词 来获取一个 TikTok 视频文件"
-
-@app.route("/api/tiktok")
+@app.route('/api/tiktok')
 def get_video():
-    keyword = request.args.get("q")
+    keyword = request.args.get('q')
     if not keyword:
-        return jsonify({"error": "请传入关键词参数 ?q="}), 400
+        return jsonify({"error": "请提供关键词参数 ?q="})
 
-    # 搜索视频
-    video_url = search_tiktok_videos(keyword)
-    if not video_url:
-        return jsonify({"error": "未搜索到视频"}), 404
+    try:
+        # 使用 TiklyDown 的解析 API
+        api_url = f'https://api.tiklydown.com/api/download/search?keywords={keyword}'
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+        res = requests.get(api_url, headers=headers)
+        data = res.json()
 
-    # 解析视频直链
-    direct_link = parse_video(video_url)
-    if not direct_link:
-        return jsonify({"error": "视频解析失败"}), 500
+        videos = data.get("video", [])
+        if not videos:
+            return jsonify({"error": f"❌ 没找到和『{keyword}』有关的视频，请换个关键词试试。"})
 
-    # 下载视频
-    video_resp = requests.get(direct_link, stream=True)
-    with open("static/temp.mp4", "wb") as f:
-        for chunk in video_resp.iter_content(chunk_size=1024):
-            if chunk:
-                f.write(chunk)
+        # 随机选择视频
+        random_video = random.choice(videos)
+        video_url = random_video.get("no_watermark")
+        if not video_url:
+            return jsonify({"error": "未获取到无水印链接。"})
 
-    # 返回视频文件
-    return send_file("static/temp.mp4", mimetype="video/mp4")
+        # 下载并保存视频
+        video_data = requests.get(video_url).content
+        with open(VIDEO_PATH, 'wb') as f:
+            f.write(video_data)
 
-if __name__ == "__main__":
+        # 返回 mp4 文件
+        return send_file(VIDEO_PATH, mimetype='video/mp4', as_attachment=False)
+
+    except Exception as e:
+        return jsonify({"error": f"服务器异常：{str(e)}"})
+
+if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(host='0.0.0.0', port=port)
